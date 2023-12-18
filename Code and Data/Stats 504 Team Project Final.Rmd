@@ -1,0 +1,304 @@
+---
+title: "Team Project"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#load the data
+airbnb <- read.csv("train.csv")
+```
+
+First try to pre-process the airbnb dataset
+```{r}
+library(tidyverse)
+#The id variable is certainly irrelevant
+airbnb <- select(airbnb,-id)
+#We may need both the original price and the log price variables
+airbnb <- mutate(airbnb,price=exp(log_price))
+airbnb <- select(airbnb,price,everything())
+#For the property type, we may keep those factors with 700+ (count more than 1% of the total observations) observations, and combine the rest as "Other"
+summary(airbnb$property_type)
+levels(airbnb$property_type) <- 
+  c("Apartment","Others","Others","Others","Others","Others","Others","Others","Others","Others","Others","Condominium","Others","Others","Others","Others","Others","House","Others","Others","Others","Others","Loft","Others","Others","Others","Others","Others","Others","Townhouse","Others","Others","Others","Others","Others")
+#Instead of treating amenities as a categorical predictor, we can count the number of ameniteis each airbnb has, based on number of commas
+airbnb$amenities <- as.character(airbnb$amenities)
+airbnb$amenities <- str_count(airbnb$amenities,pattern = ",")
+airbnb <- mutate(airbnb,amenities=amenities+1)
+#Since the Real Bed count for most of bed_type, we may rename the predictor as "real_bed", change the "Real Bed" level as "True", and group the other levels as "False"
+summary(airbnb$bed_type)
+airbnb <- rename(airbnb, real_bed = bed_type)
+levels(airbnb$real_bed) <- c("False","False","False","False","True")
+#Change accmmodates variable as numerical
+airbnb$accommodates <- as.numeric(airbnb$accommodates)
+#Change bathrooms variable as factor, plus combing some levels
+airbnb$bathrooms <- as.factor(airbnb$bathrooms)
+levels(airbnb$bathrooms) <- 
+  c("< 1","< 1","1","1.5","2","> 2","> 2","> 2","> 2","> 2","> 2","> 2","> 2","> 2","> 2","> 2","> 2")
+#Combine "super_strict_30" and "super_strict_60" with "strict" for cancellation_policy
+summary(airbnb$cancellation_policy)
+levels(airbnb$cancellation_policy) <- c("flexible","moderate","strict","strict","strict")
+#Drop description variable as it is hard to quantify
+airbnb <- select(airbnb,-description)
+#Drop first_review as it is highly correlated with host_since
+airbnb <- select(airbnb,-first_review)
+#Drop host_has_profile_pic as most of them do have pictures; delete observations with no photos
+summary(airbnb$host_has_profile_pic)
+airbnb <- airbnb %>% filter(host_has_profile_pic=="t") %>%
+  select(-host_has_profile_pic)
+#Re-facotor the host_identity_verified vairable
+airbnb$host_identity_verified <- factor(airbnb$host_identity_verified)
+#Drop host_idenity_verified variable because there are too many NA values
+airbnb <- select(airbnb, -host_response_rate)
+#Transform host_since variable to a continuous vairable showing the number of days s/he becoming a host
+library(lubridate)
+airbnb <- mutate(airbnb,host_since=difftime(Sys.Date(),parse_date_time(as.character(airbnb$host_since),"%Y%m%d")))
+airbnb$host_since <- as.numeric(airbnb$host_since)
+#Drop the last_review variable because there are too many NA data.
+airbnb <- select(airbnb,-last_review)
+#Change the number of reviews variable as a numerical type.
+airbnb$number_of_reviews <- as.numeric(airbnb$number_of_reviews)
+#Drop latitude & longitude as they are highly correlated with city vairbale
+airbnb <- select(airbnb,-latitude,-longitude)
+#Drop name & neighbourhood variable as it is hard to quantify
+airbnb <- select(airbnb,-name,-neighbourhood)
+#Drop the review_scores_rating variable since there are too many NA values
+airbnb <- select(airbnb, -review_scores_rating)
+#Drop thumbnail_url as it is irrelevant
+airbnb <- select(airbnb,-thumbnail_url)
+#Drop zipcode is it is highly correlated with city variable
+airbnb <- select(airbnb,-zipcode)
+#Change the bedroom variable into a factor with 5 levels.
+airbnb$bedrooms <- as.factor(airbnb$bedrooms)
+levels(airbnb$bedrooms) <- c("0","1","2","3",">3",">3",">3",">3",">3",">3",">3")
+#Change the beds variable into a factor.
+airbnb$beds <- as.factor(airbnb$beds)
+levels(airbnb$beds) <- c("<=1","<=1","2","3",">3",">3",">3",">3",">3",">3",">3",">3",">3",">3",">3",">3",">3",">3")
+```
+
+Look back again at the new airbnb dataset
+```{r}
+#Delete the NA values, if any
+airbnb <- na.omit(airbnb)
+summary(airbnb)
+str(airbnb)
+```
+
+EDA
+```{r}
+#Look at the price variable
+library(corrplot)
+theme_set(theme_classic())
+ggplot(data = airbnb, mapping = aes(price)) +
+  geom_histogram(binwidth = 50, fill = "orange", col = "black") +
+  labs(title = "The Distribution of Airbnb Price", x = "Price")
+#We notice that it is strongly right-skewed, so the log transformation is suggested. 
+ggplot(data = airbnb, mapping = aes(log_price)) +
+  geom_histogram(binwidth = 0.3, fill = "orange", col = "black") +
+  labs(title = "The Distribution of Log Price", x="Log Price")
+#We may further explore some relationships among variables
+airbnb.cor <- cor(airbnb[,c(2,5,6,13,15)], method = c("spearman"))
+corrplot(airbnb.cor, method ="ellipse")
+theme_set(theme_bw())
+ggplot(data = airbnb, mapping = aes(x = city, y = log_price)) + 
+  geom_violin(aes(color = room_type)) +
+  geom_hline(aes(yintercept = mean(log_price)), linetype = "dotted") +
+  labs(title="Log Price of Airbnb Among Major Cities",
+       x="City",
+       y="Log Price")
+theme_set(theme_classic())
+ggplot(airbnb, aes(host_since, log_price)) +
+  geom_hex() +
+  scale_fill_distiller(palette ="RdBu", direction = -1) +
+  labs(title="Log Price vs. Number of Days as Hosts",
+       x="Number of Days as Hosts",
+       y="Log Price") +
+  theme(legend.title = element_blank())
+#We notice there is outlier at the left bottom corner, and we can drop it.
+summary(airbnb$log_price==1)
+airbnb <- filter(airbnb, log_price > 0)
+```
+
+From now on, we need to split the dataset into training set and test set in order to fit the model and make predictions.
+```{r}
+#Split the data by random
+set.seed(1)
+n <- nrow(airbnb)
+shuffle <- cut(sample.int(n), breaks = c(0, quantile(1:n, 0.75), n), 
+               labels = c("train", "test"))
+train <- split(airbnb, shuffle)$train
+test <- split(airbnb, shuffle)$test
+```
+
+Model Selection
+```{r}
+#Since there are too may categorical predictors, we are unable to calculate their correlations with the response variable.
+#But we can try forward selection
+#Get a design Matrix
+X_design <- matrix(c(train$property_type,train$room_type,train$amenities,train$accommodates,train$bathrooms,train$real_bed,train$cancellation_policy,train$cleaning_fee,train$city,train$host_identity_verified,train$host_since,train$instant_bookable,train$number_of_reviews,train$bedrooms,train$beds),ncol = 15)
+#Run model selection and order the predictors based on importance
+library(leaps)
+foward <- regsubsets(X_design, train$log_price, nvmax = 15, method = "forward")
+foward_sum <- summary(foward)
+print(summary(foward))
+#Make decision based on Cp, BIC and Adjusted R Square
+par(mfrow=c(1,3))
+plot(foward_sum$cp, xlab = "Number of Variables", ylab = "Cp",type = "b")
+points(which.min(foward_sum$cp), foward_sum$cp[which.min(foward_sum$cp)],
+       pch = 21, col = "red", bg = "red")
+plot(foward_sum$bic, xlab = "Number of Variables", ylab = "BIC", type = "b")
+points(which.min(foward_sum$bic), foward_sum$bic[which.min(foward_sum$bic)],
+       pch = 21, col = "red", bg = "red")
+plot(foward_sum$adjr2, xlab = "Number of Variables", ylab = "Adjusted R Square",
+     type = "b")
+points(which.max(foward_sum$adjr2),foward_sum$adjr2[which.max(foward_sum$adjr2)],
+       pch = 21, col = "red", bg = "red")
+#The results of backword and exhaustive method appear just the same.
+```
+
+Fit Linear Regression Model
+```{r}
+#We first fit a linear regression model excluding the two least important variables.
+mod1 <- lm(data = train, log_price ~ . - price - real_bed)
+summary(mod1)
+#It seems that there are severeal insignificant coefficients. First we want to find if changing the reference level will make any difference.
+train2 <- within(train, property_type <- relevel(property_type, ref = 2))
+train2 <- within(train2, cancellation_policy <- relevel(cancellation_policy, ref = 2))
+train2 <- within(train2, city <- relevel(city, ref = 2))
+train2 <- within(train2, beds <- relevel(beds, ref = 3))
+mod2 <- lm(data = train2, log_price ~ . - price - real_bed)
+summary(mod2)
+#Plot of coefficients
+coef.mod2 <- as.data.frame(coef(mod2))
+coef.mod2[,2] <- (coef(mod2) >= 0)
+theme_set(theme_classic())
+ggplot(data = coef.mod2, aes(x = rownames(coef.mod2), y = coef(mod2))) + 
+  geom_point(aes(color = V2), size = 3) +
+  scale_color_manual(values = c("tomato2", "#a3c4dc"), guide = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_segment(aes(x = rownames(coef.mod2), xend = rownames(coef.mod2),
+                   y = min(coef(mod2)), yend = max(coef(mod2))),
+               linetype="dashed", size=0.1) +
+  labs(title = "Coefficients of the Linear Regression Model", 
+       y = "Coefficients Values") +
+  theme(axis.title.y = element_blank()) +
+  coord_flip()
+#We can also make an anova F test to see whether all levels are significant for the property type
+mod3 <- lm(data = train2, log_price ~ . - price - beds - real_bed - property_type)
+anova(mod2, mod3)
+#We may further decide whether to include interactions terms and higher level components.
+#We now calculate the test error using the test dataset. Remember that we also have to change reference level of the test dataset.
+pred1 <- predict(mod2, test)
+mean((pred1 - test$log_price)^2)
+```
+
+Model diagnoses
+```{r}
+plot(mod2, which = 1)
+plot(mod2, which = 2)
+plot(mod2, which = 3)
+#We find that the normality assumption is violated. Residuals follow a long tail distribution.
+```
+
+Fit Ridge Regression Models
+```{r}
+library(glmnet)
+X_train <- model.matrix(log_price ~ . - price, data = train)[,-1]
+X_test <- model.matrix(log_price ~ . - price, data = test)[,-1]
+#Find best lambda value using 10-fold cross-validation
+cv.ridge <- cv.glmnet(X_train, train$log_price, alpha = 0)
+plot(cv.ridge)
+#Using the optimal lambda to fit the model
+lmd.ridge <- cv.ridge$lambda.min
+mod4 <- glmnet(X_train, train$log_price, alpha = 0, lambda = lmd.ridge)
+coef(mod4)
+#Plot of coefficients
+coef.mod4 <- as.data.frame(as.matrix(coef(mod4)))
+coef.mod4[,2] <- (as.matrix(coef(mod4)) >= 0)
+theme_set(theme_classic())
+ggplot(data = coef.mod4, aes(x = rownames(coef.mod4), y = s0)) + 
+  geom_point(aes(color = V2), size = 3) +
+  scale_color_manual(values = c("tomato2", "#a3c4dc"), guide = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_segment(aes(x = rownames(coef.mod4), xend = rownames(coef.mod4),
+                   y = min(s0), yend = max(s0)),
+               linetype="dashed", size=0.1) +
+  labs(title = "Coefficients of the Ridge Regression Model", 
+       y = "Coefficients Values") +
+  theme(axis.title.y = element_blank()) +
+  coord_flip()
+#We now calculate the test error using the test dataset.
+pred2 <- predict(mod4, X_test)
+mean((pred2 - test$log_price)^2)
+```
+
+Fit Elastic net regularization Models
+```{r}
+#Find best lambda value using 10-fold cross-validation
+cv.elastic <- cv.glmnet(X_train, train$log_price, alpha = 0.5)
+plot(cv.elastic)
+#Using the optimal lambda to fit the model
+lmd.elastic <- cv.elastic$lambda.min
+mod5 <- glmnet(X_train, train$log_price, alpha = 0.5, lambda = lmd.elastic)
+coef(mod5) #The only 0-coeffcient variable is cityNYC, which will change if we change the reference level. 
+#Plot of coefficients
+coef.mod5 <- as.data.frame(as.matrix(coef(mod5)))
+coef.mod5[,2] <- as.numeric((as.matrix(coef(mod5)) >= 0))
+coef.mod5[as.matrix(coef(mod5)) == 0,2] = 2
+coef.mod5$V2 <- as.factor(coef.mod5$V2)
+theme_set(theme_classic())
+ggplot(data = coef.mod5, aes(x = rownames(coef.mod5), y = s0)) + 
+  geom_point(aes(color = V2), size = 3) +
+  scale_color_manual(values = c("tomato2", "#a3c4dc", "yellow"), guide = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_segment(aes(x = rownames(coef.mod5), xend = rownames(coef.mod5),
+                   y = min(s0), yend = max(s0)),
+               linetype="dashed", size=0.1) +
+  labs(title = "Coefficients of the elastic Regression Model", 
+       y = "Coefficients Values") +
+  theme(axis.title.y = element_blank()) +
+  coord_flip()
+#We now calculate the test error using the test dataset.
+pred3 <- predict(mod5, X_test)
+mean((pred3 - test$log_price)^2)
+```
+
+Fit Regression Tree Model
+```{r}
+library(rpart)
+library(rpart.plot)
+mod6 <- rpart(log_price ~ . - price, data = train, method = "anova")
+rpart.plot(mod6)
+#We now calculate the test error using the test dataset.
+pred4 <- predict(mod6, test)
+mean((pred4 - test$log_price)^2)
+```
+
+Fit Random Forrest Model
+```{r}
+library(randomForest)
+set.seed(1)
+sample <- train[sample(nrow(train), 10000), ]
+mod7 <- randomForest(sample[-c(1,2)],sample$log_price,ntree=200,importance=TRUE)
+#We now calculate the test error using the test dataset.
+pred5 <- predict(mod7, test)
+mean((pred5 - test$log_price)^2)
+#Making importance Plot
+rf_importance <- importance(mod7, type = 1)
+rf_importance <- data.frame(rf_importance)
+rf_importance$x <- row.names(rf_importance)
+theme_set(theme_bw())
+ggplot(rf_importance, aes(x=x,y=X.IncMSE)) + 
+  geom_point(size=3)+
+  geom_segment(aes(x=x,xend=x,y=0,yend=X.IncMSE)) + 
+  labs(title="Mean Decrease Accuracy Chart of Random Forest Tree Method", 
+       x="Variables", 
+       y="Mean Decrease Accuracy") + 
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))
+```
