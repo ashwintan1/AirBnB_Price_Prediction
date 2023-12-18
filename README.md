@@ -1,2 +1,3 @@
 # AirBnB_Price_Prediction
- Predicting the list price of AirBnB listings using various regression models
+
+We apply and evaluate various regression models (Linear, Ridge, Elastic Net, Regression Tree, Random Forest) to a data set   of list prices of AirBnB listings obtained from Kaggle.
